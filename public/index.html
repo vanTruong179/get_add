@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Tra cứu đơn hàng</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <h2>📦 truong am - C01</h2>
+
+        <div class="input-group" id="token-group">
+            <input id="authToken" placeholder="Nhập authToken">
+            <button onclick="saveAuthToken()">💾 Lưu Token</button>
+        </div>
+        <button id="toggleTokenBtn" onclick="toggleToken()" style="margin-bottom:10px; display:none;">👁️ Hiện
+            Token</button>
+        <button onclick="refreshSearch()">🔄 Làm mới</button>
+
+        <div class="input-group">
+            <input id="orderIds" placeholder="Nhập mã đơn (cách nhau bằng dấu cách)">
+            <div class="btn-group">
+                <button onclick="getAddresses()">🔍 Tra cứu</button>
+                <button onclick="downloadExcel()">📥 Xuất dữ liệu</button>
+            </div>
+        </div>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        let lastData = []; // lưu dữ liệu API trả về
+
+        function refreshSearch() {
+            document.getElementById("orderIds").value = "";
+            document.getElementById("result").innerHTML = "";
+            lastData = [];
+        }
+
+        window.onload = () => {
+            const savedToken = localStorage.getItem("authToken");
+            if (savedToken) {
+                document.getElementById("authToken").value = savedToken;
+                document.getElementById("token-group").style.display = "none";
+                document.getElementById("toggleTokenBtn").style.display = "inline-block";
+            }
+        };
+
+        // Lưu authToken vào localStorage
+        function saveAuthToken() {
+            const token = document.getElementById("authToken").value.trim();
+            if (token) {
+                localStorage.setItem("authToken", token);
+                alert("Đã lưu authToken");
+                document.getElementById("token-group").style.display = "none";
+                document.getElementById("toggleTokenBtn").style.display = "inline-block";
+            } else {
+                alert("⚠️ Chưa nhập token!");
+            }
+        }
+
+        function toggleToken() {
+            const group = document.getElementById("token-group");
+            if (group.style.display === "none") {
+                group.style.display = "flex";
+                document.getElementById("toggleTokenBtn").textContent = "🙈 Ẩn Token";
+            } else {
+                group.style.display = "none";
+                document.getElementById("toggleTokenBtn").textContent = "👁️ Hiện Token";
+            }
+        }
+
+        async function getAddresses() {
+        const input = document.getElementById("orderIds").value.trim();
+        const authToken = document.getElementById("authToken").value.trim();
+        const resultDiv = document.getElementById("result");
+
+        if (!authToken) {
+            resultDiv.innerHTML = "<p style='color:red'>⚠️ Chưa nhập authToken!</p>";
+            return;
+        }
+
+        if (!input) {
+            resultDiv.innerHTML = "<p style='color:red'>⚠️ Nhập mã đơn!</p>";
+            return;
+        }
+
+        const orderIds = input.split(/\s+/);
+        resultDiv.innerHTML = "<p>⏳ Đang tra cứu...</p>";
+
+        try {
+            const res = await fetch("/api/tracking", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ orderIds, authToken })
+            });
+
+            const data = await res.json();
+            lastData = data;
+
+            if (Array.isArray(data)) {
+                let table = `
+                <table>
+                <thead>
+                    <tr>
+                        <th>Mã đơn</th>
+                        <th>Người nhận</th>
+                        <th>Địa chỉ</th>
+                        <th>Mã đoạn</th>
+                        <th>Trạng thái</th>
+                    </tr>
+                </thead>
+                <tbody>
+                `;
+
+                table += data.map(item => {
+                    if (item.error) {
+                        return `<tr class="error">
+                            <td>${item.orderId}</td>
+                            <td colspan="7">❌ ${item.error}</td>
+                        </tr>`;
+                    }
+                    return `<tr>
+                        <td>${item.orderId}</td>
+                        <td>${item.receiverName || "-"}</td>
+                        <td>${item.receiverAddress || "-"}</td>
+                        <td>${item.terminalDispatchCode || "-"}</td>
+                        <td>${item.scanTypeName || "-"}</td>
+                    </tr>`;
+                }).join("");
+
+                table += "</tbody></table>";
+                resultDiv.innerHTML = table;
+            } else {
+                resultDiv.innerHTML = "<p style='color:red'>❌ Không tìm thấy kết quả!</p>";
+            }
+        } catch (err) {
+            resultDiv.innerHTML = "<p style='color:red'>⚠️ Lỗi khi gọi API!</p>";
+        }
+    }
+
+        function downloadExcel() {
+            if (!lastData || lastData.length === 0) {
+                alert("⚠️ Chưa có dữ liệu để tải xuống!");
+                return;
+            }
+
+            const exportData = lastData.map(item => ({
+                "Mã đơn": item.orderId || "",
+                "Người nhận": item.receiverName || "",
+                "Địa chỉ": item.receiverAddress || "",
+                "Mã đoạn": item.terminalDispatchCode || "",
+                "Trạng thái": item.scanTypeName || ""
+            }));
+
+            const ws = XLSX.utils.json_to_sheet(exportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Danh sách đơn hàng");
+
+            XLSX.writeFile(wb, "dia_chi_don_hang.xlsx");
+        }
+    </script>
+</body>
+
+</html>
